@@ -160,6 +160,7 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                             data.toBundle()
                         )
                     )
+                    addCall(context, data)
 
                     result.success("OK")
                 }
@@ -186,7 +187,7 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                             data.toBundle()
                         )
                     )
-
+                    addCall(context, data)
                     result.success("OK")
                 }
 
@@ -226,7 +227,7 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                             data.toBundle()
                         )
                     )
-
+                    removeCall(context, data)
                     result.success("OK")
                 }
 
