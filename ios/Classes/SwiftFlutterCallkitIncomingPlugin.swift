@@ -446,7 +446,8 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
     }
     
     func configurAudioSession(){
-        if data?.configureAudioSession != false {
+        // TODO: Rimuovere questa funzione
+        /* if data?.configureAudioSession != false {
             let session = AVAudioSession.sharedInstance()
             do{
                 try session.setCategory(AVAudioSession.Category.playAndRecord, options: [
@@ -462,7 +463,7 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
             }catch{
                 print(error)
             }
-        }
+        }*/
     }
     
     func getAudioSessionMode(_ audioSessionMode: String?) -> AVAudioSession.Mode {
