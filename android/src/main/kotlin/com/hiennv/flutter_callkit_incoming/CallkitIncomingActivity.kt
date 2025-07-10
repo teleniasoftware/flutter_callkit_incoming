@@ -41,21 +41,14 @@ class CallkitIncomingActivity : Activity() {
 
         fun getIntent(context: Context, data: Bundle) =
             Intent(CallkitConstants.ACTION_CALL_INCOMING).apply {
-                setClassName(context.packageName,  "com.hiennv.flutter_callkit_incoming.CallkitIncomingActivity")
                 action = "${context.packageName}.${CallkitConstants.ACTION_CALL_INCOMING}"
                 putExtra(CallkitConstants.EXTRA_CALLKIT_INCOMING_DATA, data)
-                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                `package` = context.packageName
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
             }
 
         fun getIntentEnded(context: Context, isAccepted: Boolean): Intent {
             val intent = Intent("${context.packageName}.${ACTION_ENDED_CALL_INCOMING}")
             intent.putExtra("ACCEPTED", isAccepted)
-            intent.setPackage(context.packageName)
-            intent.setClassName(
-                context.packageName,
-                "com.hiennv.flutter_callkit_incoming.CallkitIncomingActivity"
-            )
             return intent
         }
     }
