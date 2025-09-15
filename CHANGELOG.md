@@ -1,5 +1,8 @@
-## next
-* Add answer from wired headset/headphone and some bluetooth devices on Android
+## 3.0.0
+* Using Plugin DSL for Android, thank @AAkira https://github.com/hiennguyen92/flutter_callkit_incoming/pull/743
+* Add Android native callback, thank @joshoconnor89 https://github.com/hiennguyen92/flutter_callkit_incoming/pull/736
+* Improve plugin lifecycle, thank @lohzi97 https://github.com/hiennguyen92/flutter_callkit_incoming/pull/746
+* Fixed some bugs.
 
 ## 2.5.8
 * Fix OnGoing notification Android
