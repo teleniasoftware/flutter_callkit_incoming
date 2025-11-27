@@ -25,7 +25,7 @@ class InAppCallManager(private val context: Context) {
         val handle = PhoneAccountHandle(componentName, ACCOUNT_ID)
 
         val phoneAccount = PhoneAccount.builder(handle, "Callkit Incoming In-App Call")
-            .setCapabilities(PhoneAccount.CAPABILITY_SELF_MANAGED)
+            .setCapabilities(PhoneAccount.CAPABILITY_SELF_MANAGED or PhoneAccount.CAPABILITY_CALL_PROVIDER)
             .build()
 
         telecomManager.registerPhoneAccount(phoneAccount)
