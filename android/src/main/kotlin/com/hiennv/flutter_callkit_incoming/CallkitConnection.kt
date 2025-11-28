@@ -24,5 +24,9 @@ class CallkitConnection(private val context: Context) : Connection() {
 
         val intent = Intent("com.hiennv.flutter_callkit_incoming.ACTION_DECLINE_CALL")
         context.sendBroadcast(intent)
+        
+        // Ensure connection is properly terminated
+        setDisconnected(android.telecom.DisconnectCause(android.telecom.DisconnectCause.LOCAL))
+        destroy()
     }
 }

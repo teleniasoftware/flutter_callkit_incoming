@@ -19,7 +19,8 @@ class CallkitConnectionService : ConnectionService() {
 
         val connection = CallkitConnection(applicationContext)
         connection.setInitializing()
-        connection.setActive()
+        connection.setRinging()
+        connection.setInitialized()
         return connection
     }
 }
