@@ -34,6 +34,9 @@ class CallkitSoundPlayerManager(private val context: Context) {
 
 
     fun play(data: Bundle) {
+        val sound = data.getString(CallkitConstants.EXTRA_CALLKIT_RINGTONE_PATH, "")
+        if (sound == "silent") return
+
         this.isPlaying = true
         this.prepare()
         this.playSound(data)
