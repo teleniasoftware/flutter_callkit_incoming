@@ -153,6 +153,20 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
                     FlutterCallkitIncomingPlugin.notifyEventCallbacks(CallkitEventCallback.CallEvent.DECLINE, data)
                     // clear notification
                     getCallkitNotificationManager()?.clearIncomingNotification(data, false)
+                    
+                    // Destroy the Connection so Android knows the call ended
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                        val callUuid = data.getString(CallkitConstants.EXTRA_CALLKIT_ID)
+                        if (callUuid != null) {
+                            val connection = CallkitConnectionManager.getConnection(callUuid)
+                            connection?.let {
+                                it.setDisconnected(android.telecom.DisconnectCause(android.telecom.DisconnectCause.REJECTED))
+                                it.destroy()
+                            }
+                            CallkitConnectionManager.removeConnection(callUuid)
+                        }
+                    }
+                    
                     sendEventFlutter(CallkitConstants.ACTION_CALL_DECLINE, data)
                     removeCall(context, Data.fromBundle(data))
                 } catch (error: Exception) {
@@ -165,6 +179,20 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
                     // clear notification and stop service
                     getCallkitNotificationManager()?.clearIncomingNotification(data, false)
                     CallkitNotificationService.stopService(context)
+                    
+                    // Destroy the Connection so Android knows the call ended
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                        val callUuid = data.getString(CallkitConstants.EXTRA_CALLKIT_ID)
+                        if (callUuid != null) {
+                            val connection = CallkitConnectionManager.getConnection(callUuid)
+                            connection?.let {
+                                it.setDisconnected(android.telecom.DisconnectCause(android.telecom.DisconnectCause.LOCAL))
+                                it.destroy()
+                            }
+                            CallkitConnectionManager.removeConnection(callUuid)
+                        }
+                    }
+                    
                     sendEventFlutter(CallkitConstants.ACTION_CALL_ENDED, data)
                     removeCall(context, Data.fromBundle(data))
                 } catch (error: Exception) {
