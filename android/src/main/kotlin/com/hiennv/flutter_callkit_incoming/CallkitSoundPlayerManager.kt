@@ -34,6 +34,9 @@ class CallkitSoundPlayerManager(private val context: Context) {
 
 
     fun play(data: Bundle) {
+        val sound = data.getString(CallkitConstants.EXTRA_CALLKIT_RINGTONE_PATH, "")
+        if (sound == "silent") return
+
         this.isPlaying = true
         this.prepare()
         this.playSound(data)
@@ -101,6 +104,11 @@ class CallkitSoundPlayerManager(private val context: Context) {
     }
 
     private fun playSound(data: Bundle?) {
+        val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        if (audioManager.ringerMode != AudioManager.RINGER_MODE_NORMAL) {
+            return
+        }
+
         val sound = data?.getString(
             CallkitConstants.EXTRA_CALLKIT_RINGTONE_PATH,
             ""
@@ -110,25 +118,18 @@ class CallkitSoundPlayerManager(private val context: Context) {
 
         try {
             ringtone = RingtoneManager.getRingtone(context, uri)
-            val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
             // Set audio attributes for Bluetooth
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 val attribution = AudioAttributes.Builder()
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                    .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                    .setLegacyStreamType(AudioManager.STREAM_VOICE_CALL)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                    .setLegacyStreamType(AudioManager.STREAM_RING)
                     .build()
                 ringtone?.setAudioAttributes(attribution)
             } else {
-                ringtone?.streamType = AudioManager.STREAM_VOICE_CALL
+                ringtone?.streamType = AudioManager.STREAM_RING
             }
-
-            // Enable Bluetooth SCO for voice calls
-            audioManager.mode = AudioManager.MODE_IN_CALL
-            audioManager.isSpeakerphoneOn = false
-            audioManager.isBluetoothScoOn = true
-            audioManager.startBluetoothSco()
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 ringtone?.isLooping = true

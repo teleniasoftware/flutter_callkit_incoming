@@ -3,26 +3,68 @@ package com.hiennv.flutter_callkit_incoming
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.os.Bundle
 import android.telecom.Connection
 import android.util.Log
 import androidx.annotation.RequiresApi
 
 @RequiresApi(Build.VERSION_CODES.M)
-class CallkitConnection(private val context: Context) : Connection() {
+class CallkitConnection(
+    private val context: Context,
+    private val callUuid: String = "",
+    private val callData: Bundle? = null
+) : Connection() {
 
     override fun onAnswer() {
         super.onAnswer()
-        Log.d("CallkitIncoming", "onAnswer called - sending broadcast to accept call")
+        Log.d("CallkitIncoming", "onAnswer called - setting connection to ACTIVE (UUID: $callUuid)")
+
+        // Set connection to active state - this tells Android the call is now active
+        // and triggers Android to automatically hold any active GSM calls
+        setActive()
 
         val intent = Intent("com.hiennv.flutter_callkit_incoming.ACTION_ANSWER_CALL")
+        intent.putExtra("callUUID", callUuid)
+        context.sendBroadcast(intent)
+    }
+    
+    override fun onHold() {
+        super.onHold()
+        Log.d("CallkitIncoming", "onHold called - Android wants us to hold (UUID: $callUuid)")
+        
+        setOnHold()
+        
+        // Notify Flutter to put call on hold (mute audio, pause video, etc.)
+        val intent = Intent("com.hiennv.flutter_callkit_incoming.ACTION_HOLD_CALL")
+        intent.putExtra("callUUID", callUuid)
+        context.sendBroadcast(intent)
+    }
+    
+    override fun onUnhold() {
+        super.onUnhold()
+        Log.d("CallkitIncoming", "onUnhold called - Android wants us to unhold (UUID: $callUuid)")
+        
+        setActive()
+        
+        // Notify Flutter to resume call (unmute audio, resume video, etc.)
+        val intent = Intent("com.hiennv.flutter_callkit_incoming.ACTION_UNHOLD_CALL")
+        intent.putExtra("callUUID", callUuid)
         context.sendBroadcast(intent)
     }
 
     override fun onDisconnect() {
         super.onDisconnect()
-        Log.d("CallkitIncoming", "onDisconnect called - sending broadcast to decline call")
+        Log.d("CallkitIncoming", "onDisconnect called - sending broadcast to decline call (UUID: $callUuid)")
 
         val intent = Intent("com.hiennv.flutter_callkit_incoming.ACTION_DECLINE_CALL")
+        intent.putExtra("callUUID", callUuid)
         context.sendBroadcast(intent)
+        
+        // Ensure connection is properly terminated
+        setDisconnected(android.telecom.DisconnectCause(android.telecom.DisconnectCause.LOCAL))
+        destroy()
+        
+        // Remove from connection manager
+        CallkitConnectionManager.removeConnection(callUuid)
     }
 }

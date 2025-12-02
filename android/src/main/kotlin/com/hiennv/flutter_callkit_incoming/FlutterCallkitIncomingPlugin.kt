@@ -299,6 +299,12 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                                 currentCall.toBundle()
                             )
                         )
+                        
+                        // Tell the Connection it's now active (API 23+)
+                        // This triggers Android to automatically hold any active GSM calls
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                            CallkitConnectionManager.setConnectionActive(data.id)
+                        }
                     }
                     result.success(true)
                 }
