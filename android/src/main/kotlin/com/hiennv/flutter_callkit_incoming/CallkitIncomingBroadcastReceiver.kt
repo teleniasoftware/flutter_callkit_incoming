@@ -94,11 +94,23 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
         when (action) {
             "${context.packageName}.${CallkitConstants.ACTION_CALL_INCOMING}" -> {
                 try {
+                    Log.d(TAG, "ACTION_CALL_INCOMING handler started")
                     getCallkitNotificationManager()?.showIncomingNotification(data)
+                    
+                    // Register with TelecomManager so Android can coordinate with GSM calls
+                    Log.d(TAG, "SDK Version: ${android.os.Build.VERSION.SDK_INT}, M=${android.os.Build.VERSION_CODES.M}")
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                        Log.d(TAG, "Calling InAppCallManager.registerIncomingCall...")
+                        InAppCallManager.registerIncomingCall(context, data)
+                        Log.d(TAG, "InAppCallManager.registerIncomingCall completed")
+                    } else {
+                        Log.d(TAG, "Skipping TelecomManager registration (API < 23)")
+                    }
+                    
                     sendEventFlutter(CallkitConstants.ACTION_CALL_INCOMING, data)
                     addCall(context, Data.fromBundle(data))
                 } catch (error: Exception) {
-                    Log.e(TAG, null, error)
+                    Log.e(TAG, "Error in ACTION_CALL_INCOMING handler", error)
                 }
             }
 

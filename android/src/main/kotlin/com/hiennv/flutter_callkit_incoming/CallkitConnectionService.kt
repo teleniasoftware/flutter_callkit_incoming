@@ -17,10 +17,25 @@ class CallkitConnectionService : ConnectionService() {
     ): Connection {
         Log.d("CallkitIncoming", "onCreateIncomingConnection called")
 
-        val connection = CallkitConnection(applicationContext)
+        val callUuid = request?.extras?.getString(InAppCallManager.EXTRA_CALL_UUID) ?: ""
+        val callData = request?.extras?.getBundle(InAppCallManager.EXTRA_CALL_DATA)
+        
+        Log.d("CallkitIncoming", "Creating connection for call UUID: $callUuid")
+
+        val connection = CallkitConnection(applicationContext, callUuid, callData)
+        
+        // Enable hold capability so Android can coordinate with GSM calls
+        connection.setConnectionCapabilities(
+            Connection.CAPABILITY_HOLD or Connection.CAPABILITY_SUPPORT_HOLD
+        )
+        
         connection.setInitializing()
         connection.setRinging()
         connection.setInitialized()
+        
+        // Register connection so we can control it from Dart
+        CallkitConnectionManager.addConnection(callUuid, connection)
+        
         return connection
     }
 }
