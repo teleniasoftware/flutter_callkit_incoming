@@ -102,6 +102,16 @@ class FlutterCallkitIncoming {
   static Future endAllCalls() async {
     await _channel.invokeMethod("endAllCalls");
   }
+  
+  /// Set audio route for a call.
+  /// Only Android: Controls audio routing through Android's ConnectionService
+  /// route: 0=earpiece, 1=speaker, 2=bluetooth
+  static Future<bool> setAudioRoute(
+      {required String uuid, required int route}) async {
+    return (await _channel.invokeMethod(
+            "setAudioRoute", {'uuid': uuid, 'route': route})) as bool? ??
+        false;
+  }
 
   /// Get active calls.
   /// On iOS: return active calls from Callkit.
