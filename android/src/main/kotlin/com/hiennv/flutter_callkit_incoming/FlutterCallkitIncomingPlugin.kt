@@ -379,7 +379,36 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                 }
 
                 "setAudioRoute" -> {
-                    result.success(true)
+                    val map = buildMap {
+                        val args = call.arguments
+                        if (args is Map<*, *>) {
+                            putAll(args as Map<String, Any>)
+                        }
+                    }
+                    
+                    val uuid = map["uuid"] as? String
+                    val route = map["route"] as? Int ?: 0 // 0=earpiece, 1=speaker, 2=bluetooth
+                    
+                    if (uuid != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                        val connection = CallkitConnectionManager.getConnection(uuid)
+                        if (connection != null) {
+                            // Map Flutter route to Android CallAudioState route
+                            val audioRoute = when (route) {
+                                1 -> android.telecom.CallAudioState.ROUTE_SPEAKER
+                                2 -> android.telecom.CallAudioState.ROUTE_BLUETOOTH
+                                else -> android.telecom.CallAudioState.ROUTE_EARPIECE
+                            }
+                            
+                            connection.setAudioRoute(audioRoute)
+                            android.util.Log.d("CallkitIncoming", "Set audio route to $audioRoute for call $uuid")
+                            result.success(true)
+                        } else {
+                            android.util.Log.w("CallkitIncoming", "Connection not found for uuid: $uuid")
+                            result.success(false)
+                        }
+                    } else {
+                        result.success(false)
+                    }
                 }
             }
         } catch (error: Exception) {
