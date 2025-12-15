@@ -19,9 +19,8 @@ class CallkitConnection(
         super.onAnswer()
         Log.d("CallkitIncoming", "onAnswer called - setting connection to ACTIVE (UUID: $callUuid)")
 
-        // Set connection to active state - this tells Android the call is now active
-        // and triggers Android to automatically hold any active GSM calls
-        setActive()
+        // Set connection to active state and put other app calls on hold
+        FlutterCallkitIncomingPlugin.activateAndHoldOthers(callUuid)
 
         val intent = Intent("com.hiennv.flutter_callkit_incoming.ACTION_ANSWER_CALL")
         intent.putExtra("callUUID", callUuid)
@@ -33,6 +32,7 @@ class CallkitConnection(
         Log.d("CallkitIncoming", "onHold called - Android wants us to hold (UUID: $callUuid)")
         
         setOnHold()
+        FlutterCallkitIncomingPlugin.propagateHoldState(callUuid, true)
         
         // Notify Flutter to put call on hold (mute audio, pause video, etc.)
         val intent = Intent("com.hiennv.flutter_callkit_incoming.ACTION_HOLD_CALL")
@@ -44,7 +44,8 @@ class CallkitConnection(
         super.onUnhold()
         Log.d("CallkitIncoming", "onUnhold called - Android wants us to unhold (UUID: $callUuid)")
         
-        setActive()
+        FlutterCallkitIncomingPlugin.activateAndHoldOthers(callUuid)
+        FlutterCallkitIncomingPlugin.propagateHoldState(callUuid, false)
         
         // Notify Flutter to resume call (unmute audio, resume video, etc.)
         val intent = Intent("com.hiennv.flutter_callkit_incoming.ACTION_UNHOLD_CALL")

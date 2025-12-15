@@ -80,6 +80,18 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                 callbackRef.get()?.onCallEvent(event, callData)
             }
         }
+        
+        fun propagateHoldState(uuid: String, isOnHold: Boolean) {
+            if (hasInstance()) {
+                instance.syncHoldState(uuid, isOnHold, emitEvent = true)
+            }
+        }
+        
+        fun activateAndHoldOthers(uuid: String) {
+            if (hasInstance()) {
+                instance.setActiveAndHoldOthers(uuid)
+            }
+        }
 
 
         fun sharePluginWithRegister(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
@@ -125,6 +137,39 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
     private var context: Context? = null
     private var callkitNotificationManager: CallkitNotificationManager? = null
     private var callkitSoundPlayerManager: CallkitSoundPlayerManager? = null
+    
+    private fun syncHoldState(uuid: String, isOnHold: Boolean, emitEvent: Boolean = true): Boolean {
+        val ctx = context ?: return false
+        val (changed, found) = updateCallHoldState(ctx, uuid, isOnHold)
+        if (emitEvent && (changed || !found)) {
+            sendEvent(
+                CallkitConstants.ACTION_CALL_TOGGLE_HOLD,
+                mapOf("id" to uuid, "isOnHold" to isOnHold)
+            )
+            return true
+        }
+        return false
+    }
+    
+    private fun setActiveAndHoldOthers(activeUuid: String): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
+        if (context == null) return false
+        var emitted = false
+        CallkitConnectionManager.getAllConnections().forEach { (uuid, connection) ->
+            if (uuid == activeUuid) {
+                if (connection.state != android.telecom.Connection.STATE_ACTIVE) {
+                    connection.setActive()
+                }
+                emitted = syncHoldState(uuid, false, emitEvent = true) || emitted
+            } else {
+                if (connection.state != android.telecom.Connection.STATE_HOLDING) {
+                    connection.setOnHold()
+                    emitted = syncHoldState(uuid, true, emitEvent = true) || emitted
+                }
+            }
+        }
+        return emitted
+    }
 
     fun getCallkitNotificationManager(): CallkitNotificationManager? {
         return callkitNotificationManager
@@ -255,7 +300,24 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                             putAll(args as Map<String, Any>)
                         }
                     }
-                    sendEvent(CallkitConstants.ACTION_CALL_TOGGLE_HOLD, map)
+                    var emittedByNative = false
+                    val uuid = map["id"] as? String
+                    val isOnHold = map["isOnHold"] as? Boolean ?: true
+                    if (uuid != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        if (isOnHold) {
+                            CallkitConnectionManager.setConnectionOnHold(uuid)
+                            syncHoldState(uuid, true, emitEvent = false)
+                        } else {
+                            emittedByNative = setActiveAndHoldOthers(uuid)
+                        }
+                    }
+
+                    if (!emittedByNative) {
+                        sendEvent(
+                            CallkitConstants.ACTION_CALL_TOGGLE_HOLD,
+                            map
+                        )
+                    }
 
                     result.success(true)
                 }
@@ -303,7 +365,7 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                         // Tell the Connection it's now active (API 23+)
                         // This triggers Android to automatically hold any active GSM calls
                         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                            CallkitConnectionManager.setConnectionActive(data.id)
+                            setActiveAndHoldOthers(data.id)
                         }
                     }
                     result.success(true)

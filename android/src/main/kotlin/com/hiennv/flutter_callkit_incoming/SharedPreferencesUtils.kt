@@ -55,6 +55,26 @@ fun getDataActiveCallsForFlutter(context: Context?): ArrayList<Map<String, Any?>
     return Utils.getGsonInstance().readValue(json, object : TypeReference<ArrayList<Map<String, Any?>>>() {})
 }
 
+fun updateCallHoldState(context: Context?, uuid: String?, isOnHold: Boolean): Pair<Boolean, Boolean> {
+    if (context == null || uuid.isNullOrEmpty()) return Pair(false, false)
+    val calls = getDataActiveCalls(context)
+    var changed = false
+    var found = false
+    calls.forEach {
+        if (it.id == uuid) {
+            found = true
+            if (it.isOnHold != isOnHold) {
+                it.isOnHold = isOnHold
+                changed = true
+            }
+        }
+    }
+    if (changed) {
+        putString(context, "ACTIVE_CALLS", Utils.getGsonInstance().writeValueAsString(calls))
+    }
+    return Pair(changed, found)
+}
+
 fun putString(context: Context?, key: String, value: String?) {
     if (context == null) return
     initInstance(context)

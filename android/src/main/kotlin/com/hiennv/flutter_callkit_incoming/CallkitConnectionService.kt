@@ -26,8 +26,10 @@ class CallkitConnectionService : ConnectionService() {
         
         // Enable hold capability so Android can coordinate with GSM calls
         connection.setConnectionCapabilities(
-            Connection.CAPABILITY_HOLD or Connection.CAPABILITY_SUPPORT_HOLD
+            Connection.CAPABILITY_HOLD or Connection.CAPABILITY_SUPPORT_HOLD or Connection.CAPABILITY_MUTE
         )
+        connection.connectionProperties = connection.connectionProperties or Connection.PROPERTY_SELF_MANAGED
+        connection.setAudioModeIsVoip(true)
         
         connection.setInitializing()
         connection.setRinging()
@@ -39,4 +41,3 @@ class CallkitConnectionService : ConnectionService() {
         return connection
     }
 }
-

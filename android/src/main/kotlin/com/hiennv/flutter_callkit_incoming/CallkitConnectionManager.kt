@@ -12,6 +12,8 @@ object CallkitConnectionManager {
         connections[uuid] = connection
     }
     
+    fun getAllConnections(): Map<String, CallkitConnection> = connections.toMap()
+    
     fun getConnection(uuid: String): CallkitConnection? {
         return connections[uuid]
     }
@@ -29,5 +31,21 @@ object CallkitConnectionManager {
     fun setConnectionOnHold(uuid: String) {
         android.util.Log.d("CallkitIncoming", "ConnectionManager: Setting connection $uuid to ON_HOLD")
         connections[uuid]?.setOnHold()
+    }
+    
+    fun setActiveExclusive(uuid: String) {
+        connections.forEach { (id, connection) ->
+            if (id == uuid) {
+                if (connection.state != android.telecom.Connection.STATE_ACTIVE) {
+                    android.util.Log.d("CallkitIncoming", "ConnectionManager: Activating $uuid")
+                    connection.setActive()
+                }
+            } else {
+                if (connection.state != android.telecom.Connection.STATE_HOLDING) {
+                    android.util.Log.d("CallkitIncoming", "ConnectionManager: Holding $id because $uuid became active")
+                    connection.setOnHold()
+                }
+            }
+        }
     }
 }

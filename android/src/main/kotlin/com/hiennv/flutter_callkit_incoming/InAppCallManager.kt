@@ -73,7 +73,9 @@ class InAppCallManager(private val context: Context) {
         val handle = PhoneAccountHandle(componentName, ACCOUNT_ID)
 
         val phoneAccount = PhoneAccount.builder(handle, "Callkit Incoming In-App Call")
+            // Hold capability is declared on Connection, not PhoneAccount
             .setCapabilities(PhoneAccount.CAPABILITY_SELF_MANAGED)
+            .setSupportedUriSchemes(listOf(PhoneAccount.SCHEME_SIP, PhoneAccount.SCHEME_TEL))
             .build()
 
         telecomManager.registerPhoneAccount(phoneAccount)
