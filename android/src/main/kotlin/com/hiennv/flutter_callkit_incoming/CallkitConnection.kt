@@ -21,6 +21,21 @@ class CallkitConnection(
 
         // Set connection to active state and put other app calls on hold
         FlutterCallkitIncomingPlugin.activateAndHoldOthers(callUuid)
+        if (callData != null) {
+            val acceptBroadcast = CallkitIncomingBroadcastReceiver.getIntentAccept(context, callData)
+            acceptBroadcast.addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
+            context.sendBroadcast(acceptBroadcast)
+
+            val appIntent = AppUtils.getAppIntent(context, CallkitConstants.ACTION_CALL_ACCEPT, callData)
+            if (appIntent != null) {
+                appIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(appIntent)
+            } else {
+                Log.w("CallkitIncoming", "No launch intent for app; cannot open UI (UUID: $callUuid)")
+            }
+        } else {
+            Log.w("CallkitIncoming", "Call data missing on answer; cannot open UI (UUID: $callUuid)")
+        }
 
         val intent = Intent("com.hiennv.flutter_callkit_incoming.ACTION_ANSWER_CALL")
         intent.putExtra("callUUID", callUuid)
