@@ -171,6 +171,16 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
         return emitted
     }
 
+    private fun findCallById(calls: List<Data>, id: String?): Data? {
+        if (id.isNullOrEmpty()) return null
+        val direct = calls.firstOrNull { it.id == id }
+        if (direct != null) return direct
+        return calls.firstOrNull { call ->
+            val extraCallId = call.extra["callId"] as? String
+            val embeddedId = call.extra["deviceEmbeddedCallId"] as? String
+            extraCallId == id || embeddedId == id
+        }
+    }
     fun getCallkitNotificationManager(): CallkitNotificationManager? {
         return callkitNotificationManager
     }
@@ -329,7 +339,7 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                 "endCall" -> {
                     val calls = getDataActiveCalls(context)
                     val data = Data(call.arguments() ?: HashMap())
-                    val currentCall = calls.firstOrNull { it.id == data.id }
+                    val currentCall = findCallById(calls, data.id)
                     if (currentCall != null && context != null) {
                         if(currentCall.isAccepted) {
                             context?.sendBroadcast(
@@ -353,7 +363,7 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                 "callConnected" -> {
                     val calls = getDataActiveCalls(context)
                     val data = Data(call.arguments() ?: HashMap())
-                    val currentCall = calls.firstOrNull { it.id == data.id }
+                    val currentCall = findCallById(calls, data.id)
                     if (currentCall != null && context != null) {
                         context?.sendBroadcast(
                             CallkitIncomingBroadcastReceiver.getIntentConnected(
@@ -365,7 +375,7 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                         // Tell the Connection it's now active (API 23+)
                         // This triggers Android to automatically hold any active GSM calls
                         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                            setActiveAndHoldOthers(data.id)
+                            setActiveAndHoldOthers(currentCall.id)
                         }
                     }
                     result.success(true)
