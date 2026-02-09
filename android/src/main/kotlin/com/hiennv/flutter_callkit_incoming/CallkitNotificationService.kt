@@ -8,9 +8,12 @@ import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
+import android.media.ToneGenerator
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import androidx.core.content.ContextCompat
 
@@ -20,7 +23,8 @@ class CallkitNotificationService : Service() {
 
         private val ActionForeground = listOf(
             CallkitConstants.ACTION_CALL_START,
-            CallkitConstants.ACTION_CALL_ACCEPT
+            CallkitConstants.ACTION_CALL_ACCEPT,
+            CallkitConstants.ACTION_CALL_CONNECTED
         )
 
 
@@ -52,6 +56,12 @@ class CallkitNotificationService : Service() {
     private lateinit var audioManager: AudioManager
     private var audioFocusRequest: AudioFocusRequest? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var ringbackTone: ToneGenerator? = null
+    private var ringbackHandler: Handler? = null
+    private var ringbackRunnable: Runnable? = null
+    private var isRingbackPlaying = false
+    private val RINGBACK_ON_MS = 2000L
+    private val RINGBACK_OFF_MS = 2000L
 
     override fun onCreate() {
         super.onCreate()
@@ -69,11 +79,16 @@ class CallkitNotificationService : Service() {
                 ?.let {
                     if(it.getBoolean(CallkitConstants.EXTRA_CALLKIT_CALLING_SHOW, true)) {
                         getCallkitNotificationManager()?.createNotificationChanel(it)
-                        showOngoingCallNotification(it)
+                        // Use media stream while ringing.
+                        showOngoingCallNotification(
+                            it,
+                            ringingAudio = true
+                        )
                     }else {
                         stopSelf()
                     }
                 }
+            startRingbackTone()
         }
         if (intent?.action === CallkitConstants.ACTION_CALL_ACCEPT) {
             intent.getBundleExtra(CallkitConstants.EXTRA_CALLKIT_INCOMING_DATA)
@@ -85,13 +100,26 @@ class CallkitNotificationService : Service() {
                         stopSelf()
                     }
                 }
+            stopRingbackTone()
+        }
+        if (intent?.action === CallkitConstants.ACTION_CALL_CONNECTED) {
+            // Now that the call is connected, request focus for voice audio.
+            ensureCallAudioKeepAlive()
+            stopRingbackTone()
         }
         return START_STICKY
     }
 
     @SuppressLint("MissingPermission")
-    private fun showOngoingCallNotification(bundle: Bundle) {
-        ensureCallAudioKeepAlive()
+    private fun showOngoingCallNotification(
+        bundle: Bundle,
+        ringingAudio: Boolean = false
+    ) {
+        if (ringingAudio) {
+            ensureRingingAudioKeepAlive()
+        } else {
+            ensureCallAudioKeepAlive()
+        }
 
         val callkitNotification =
             getCallkitNotificationManager()?.getOnGoingCallNotification(bundle, false)
@@ -118,6 +146,45 @@ class CallkitNotificationService : Service() {
         acquireWakeLock()
         requestAudioFocus()
         setAudioMode()
+    }
+
+    private fun ensureRingingAudioKeepAlive() {
+        acquireWakeLock()
+        setRingingAudioMode()
+    }
+
+    private fun startRingbackTone() {
+        if (isRingbackPlaying) return
+        isRingbackPlaying = true
+        if (ringbackTone == null) {
+            ringbackTone = ToneGenerator(AudioManager.STREAM_MUSIC, 80)
+        }
+        if (ringbackHandler == null) {
+            ringbackHandler = Handler(Looper.getMainLooper())
+        }
+        if (ringbackRunnable == null) {
+            ringbackRunnable = Runnable {
+                if (!isRingbackPlaying) return@Runnable
+                ringbackTone?.startTone(
+                    ToneGenerator.TONE_SUP_RINGTONE,
+                    RINGBACK_ON_MS.toInt()
+                )
+                ringbackHandler?.postDelayed(
+                    ringbackRunnable!!,
+                    RINGBACK_ON_MS + RINGBACK_OFF_MS
+                )
+            }
+        }
+        ringbackRunnable?.run()
+    }
+
+    private fun stopRingbackTone() {
+        ringbackHandler?.removeCallbacks(ringbackRunnable ?: return)
+        ringbackTone?.stopTone()
+        ringbackTone?.release()
+        ringbackTone = null
+        ringbackRunnable = null
+        isRingbackPlaying = false
     }
 
     private fun acquireWakeLock() {
@@ -199,6 +266,14 @@ class CallkitNotificationService : Service() {
         }
     }
 
+    private fun setRingingAudioMode() {
+        try {
+            audioManager.mode = AudioManager.MODE_NORMAL
+        } catch (_: Exception) {
+            // Ignore
+        }
+    }
+
     private fun resetAudioMode() {
         try {
             audioManager.mode = AudioManager.MODE_NORMAL
@@ -209,6 +284,7 @@ class CallkitNotificationService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        stopRingbackTone()
         releaseAudioFocus()
         resetAudioMode()
         releaseWakeLock()
