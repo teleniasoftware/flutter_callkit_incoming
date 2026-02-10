@@ -32,6 +32,7 @@ class FlutterCallkitIncoming {
   /// Event.ACTION_CALL_TOGGLE_DMTF - only iOS
   /// Event.ACTION_CALL_TOGGLE_GROUP - only iOS
   /// Event.ACTION_CALL_TOGGLE_AUDIO_SESSION - only iOS
+  /// Event.ACTION_CALL_AUDIO_STATE_CHANGE - only Android
   /// Event.DID_UPDATE_DEVICE_PUSH_TOKEN_VOIP - only iOS
   /// }
   static Stream<CallEvent?> get onEvent =>
@@ -41,6 +42,16 @@ class FlutterCallkitIncoming {
   /// On iOS, using Callkit. On Android, using a custom UI.
   static Future showCallkitIncoming(CallKitParams params) async {
     await _channel.invokeMethod("showCallkitIncoming", params.toJson());
+  }
+
+  /// Play ringtone only (no incoming UI). Android only.
+  static Future startRingtone(CallKitParams params) async {
+    await _channel.invokeMethod("startRingtone", params.toJson());
+  }
+
+  /// Stop ringtone only. Android only.
+  static Future stopRingtone() async {
+    await _channel.invokeMethod("stopRingtone");
   }
 
   /// Show Miss Call Notification.
@@ -105,7 +116,7 @@ class FlutterCallkitIncoming {
   
   /// Set audio route for a call.
   /// Only Android: Controls audio routing through Android's ConnectionService
-  /// route: 0=earpiece, 1=speaker, 2=bluetooth
+  /// route: 0=earpiece, 1=speaker, 2=bluetooth, 3=wired headset
   static Future<bool> setAudioRoute(
       {required String uuid, required int route}) async {
     return (await _channel.invokeMethod(

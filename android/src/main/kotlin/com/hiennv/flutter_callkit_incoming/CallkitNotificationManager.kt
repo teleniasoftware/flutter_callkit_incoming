@@ -993,9 +993,7 @@ class CallkitNotificationManager(
     @SuppressLint("MissingPermission")
     fun showIncomingNotification(data: Bundle) {
         val callkitNotification = getIncomingNotification(data)
-        if (incomingChannelEnabled()) {
-            callkitSoundPlayerManager?.play(data)
-        }
+        callkitSoundPlayerManager?.play(data)
         callkitNotification?.let {
             getNotificationManager().notify(
                 it.id, callkitNotification.notification
@@ -1139,5 +1137,4 @@ class CallkitNotificationManager(
 }
 
 data class CallkitNotification(val id: Int, val notification: Notification)
-
 

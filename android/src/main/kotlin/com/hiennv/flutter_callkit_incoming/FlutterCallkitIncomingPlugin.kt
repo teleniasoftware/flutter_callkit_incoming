@@ -272,6 +272,17 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                     result.success(true)
                 }
 
+                "startRingtone" -> {
+                    val data = Data(call.arguments() ?: HashMap())
+                    callkitSoundPlayerManager?.play(data.toBundle())
+                    result.success(true)
+                }
+
+                "stopRingtone" -> {
+                    callkitSoundPlayerManager?.stop()
+                    result.success(true)
+                }
+
                 "showMissCallNotification" -> {
                     val data = Data(call.arguments() ?: HashMap())
                     data.from = "notification"
@@ -468,6 +479,7 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                             val audioRoute = when (route) {
                                 1 -> android.telecom.CallAudioState.ROUTE_SPEAKER
                                 2 -> android.telecom.CallAudioState.ROUTE_BLUETOOTH
+                                3 -> android.telecom.CallAudioState.ROUTE_WIRED_HEADSET
                                 else -> android.telecom.CallAudioState.ROUTE_EARPIECE
                             }
                             
