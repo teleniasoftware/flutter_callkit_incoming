@@ -19,9 +19,10 @@ class InAppCallManager(private val context: Context) {
         private const val TAG = "InAppCallManager"
         const val EXTRA_CALL_UUID = "com.hiennv.flutter_callkit_incoming.CALL_UUID"
         const val EXTRA_CALL_DATA = "com.hiennv.flutter_callkit_incoming.CALL_DATA"
+        const val EXTRA_CALL_IS_OUTGOING = "com.hiennv.flutter_callkit_incoming.CALL_IS_OUTGOING"
         
         @RequiresApi(Build.VERSION_CODES.M)
-        fun registerIncomingCall(context: Context, data: Bundle) {
+        fun registerIncomingCall(context: Context, data: Bundle, isOutgoing: Boolean = false) {
             try {
                 Log.d(TAG, "registerIncomingCall called")
                 
@@ -50,6 +51,7 @@ class InAppCallManager(private val context: Context) {
                 val extras = Bundle().apply {
                     putString(EXTRA_CALL_UUID, callUuid)
                     putBundle(EXTRA_CALL_DATA, data)
+                    putBoolean(EXTRA_CALL_IS_OUTGOING, isOutgoing)
                     putParcelable(TelecomManager.EXTRA_INCOMING_CALL_ADDRESS, Uri.parse("tel:$number"))
                 }
                 

@@ -19,6 +19,8 @@ class CallkitConnectionService : ConnectionService() {
 
         val callUuid = request?.extras?.getString(InAppCallManager.EXTRA_CALL_UUID) ?: ""
         val callData = request?.extras?.getBundle(InAppCallManager.EXTRA_CALL_DATA)
+        val isOutgoing =
+            request?.extras?.getBoolean(InAppCallManager.EXTRA_CALL_IS_OUTGOING, false) ?: false
         
         Log.d("CallkitIncoming", "Creating connection for call UUID: $callUuid")
 
@@ -32,7 +34,11 @@ class CallkitConnectionService : ConnectionService() {
         connection.setAudioModeIsVoip(true)
         
         connection.setInitializing()
-        connection.setRinging()
+        if (isOutgoing) {
+            connection.setDialing()
+        } else {
+            connection.setRinging()
+        }
         connection.setInitialized()
         
         // Register connection so we can control it from Dart

@@ -44,6 +44,16 @@ class FlutterCallkitIncoming {
     await _channel.invokeMethod("showCallkitIncoming", params.toJson());
   }
 
+  /// Register a call connection without showing UI.
+  /// Android only: creates a ConnectionService call for consistent audio routing.
+  static Future registerCallConnection(CallKitParams params,
+      {bool isOutgoing = false}) async {
+    await _channel.invokeMethod(
+      "registerCallConnection",
+      {'data': params.toJson(), 'isOutgoing': isOutgoing},
+    );
+  }
+
   /// Play ringtone only (no incoming UI). Android only.
   static Future startRingtone(CallKitParams params) async {
     await _channel.invokeMethod("startRingtone", params.toJson());

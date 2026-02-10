@@ -265,6 +265,28 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                     result.success(true)
                 }
 
+                "registerCallConnection" -> {
+                    val args: Map<String, Any?>? = call.arguments()
+                    val map: Map<String, Any?> = args ?: emptyMap<String, Any?>()
+                    val dataMap: Map<String, Any?> =
+                        (map["data"] as? Map<String, Any?>) ?: map
+                    val isOutgoing = map["isOutgoing"] as? Boolean ?: false
+
+                    val data = Data(dataMap)
+                    if (context != null) {
+                        addCall(context, data, isOutgoing)
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                            InAppCallManager.registerIncomingCall(
+                                requireNotNull(context),
+                                data.toBundle(),
+                                isOutgoing
+                            )
+                        }
+                    }
+
+                    result.success(true)
+                }
+
                 "showCallkitIncomingSilently" -> {
                     val data = Data(call.arguments() ?: HashMap())
                     data.from = "notification"

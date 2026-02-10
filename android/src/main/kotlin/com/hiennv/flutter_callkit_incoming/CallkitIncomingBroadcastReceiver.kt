@@ -101,7 +101,7 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
                     Log.d(TAG, "SDK Version: ${android.os.Build.VERSION.SDK_INT}, M=${android.os.Build.VERSION_CODES.M}")
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                         Log.d(TAG, "Calling InAppCallManager.registerIncomingCall...")
-                        InAppCallManager.registerIncomingCall(context, data)
+                        InAppCallManager.registerIncomingCall(context, data, false)
                         Log.d(TAG, "InAppCallManager.registerIncomingCall completed")
                     } else {
                         Log.d(TAG, "Skipping TelecomManager registration (API < 23)")
@@ -122,6 +122,9 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
                         CallkitConstants.ACTION_CALL_START,
                         data
                     )
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                        InAppCallManager.registerIncomingCall(context, data, true)
+                    }
                     sendEventFlutter(CallkitConstants.ACTION_CALL_START, data)
                     addCall(context, Data.fromBundle(data), true)
                 } catch (error: Exception) {
