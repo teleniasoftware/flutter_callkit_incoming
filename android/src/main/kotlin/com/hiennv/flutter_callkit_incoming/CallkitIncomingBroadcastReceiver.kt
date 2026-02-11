@@ -81,9 +81,8 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
             }
     }
 
-    // Get notification manager dynamically to handle plugin lifecycle properly
-    private fun getCallkitNotificationManager(): CallkitNotificationManager? {
-        return FlutterCallkitIncomingPlugin.getInstance()?.getCallkitNotificationManager()
+    private fun getCallkitNotificationManager(context: Context): CallkitNotificationManager? {
+        return CallkitNotificationManagerProvider.get(context)
     }
 
 
@@ -95,7 +94,7 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
             "${context.packageName}.${CallkitConstants.ACTION_CALL_INCOMING}" -> {
                 try {
                     Log.d(TAG, "ACTION_CALL_INCOMING handler started")
-                    getCallkitNotificationManager()?.showIncomingNotification(data)
+                    getCallkitNotificationManager(context)?.showIncomingNotification(data)
                     
                     // Register with TelecomManager so Android can coordinate with GSM calls
                     Log.d(TAG, "SDK Version: ${android.os.Build.VERSION.SDK_INT}, M=${android.os.Build.VERSION_CODES.M}")
@@ -155,7 +154,7 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
                     // Notify native decline callbacks
                     FlutterCallkitIncomingPlugin.notifyEventCallbacks(CallkitEventCallback.CallEvent.DECLINE, data)
                     // clear notification
-                    getCallkitNotificationManager()?.clearIncomingNotification(data, false)
+                    getCallkitNotificationManager(context)?.clearIncomingNotification(data, false)
                     
                     // Destroy the Connection so Android knows the call ended
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
@@ -180,7 +179,7 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
             "${context.packageName}.${CallkitConstants.ACTION_CALL_ENDED}" -> {
                 try {
                     // clear notification and stop service
-                    getCallkitNotificationManager()?.clearIncomingNotification(data, false)
+                    getCallkitNotificationManager(context)?.clearIncomingNotification(data, false)
                     CallkitNotificationService.stopService(context)
                     
                     // Destroy the Connection so Android knows the call ended
@@ -206,7 +205,7 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
             "${context.packageName}.${CallkitConstants.ACTION_CALL_TIMEOUT}" -> {
                 try {
                     // clear notification and show miss notification
-                    val notificationManager = getCallkitNotificationManager()
+                    val notificationManager = getCallkitNotificationManager(context)
                     notificationManager?.clearIncomingNotification(data, false)
                     notificationManager?.showMissCallNotification(data)
                     sendEventFlutter(CallkitConstants.ACTION_CALL_TIMEOUT, data)
@@ -224,7 +223,7 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
                         data
                     )
                     // update notification on going connected
-                    getCallkitNotificationManager()?.showOngoingCallNotification(data, true)
+                    getCallkitNotificationManager(context)?.showOngoingCallNotification(data, true)
                     sendEventFlutter(CallkitConstants.ACTION_CALL_CONNECTED, data)
                 } catch (error: Exception) {
                     Log.e(TAG, null, error)
@@ -233,7 +232,7 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
 
             "${context.packageName}.${CallkitConstants.ACTION_CALL_CALLBACK}" -> {
                 try {
-                    getCallkitNotificationManager()?.clearMissCallNotification(data)
+                    getCallkitNotificationManager(context)?.clearMissCallNotification(data)
                     sendEventFlutter(CallkitConstants.ACTION_CALL_CALLBACK, data)
                     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
                         val closeNotificationPanel = Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)
