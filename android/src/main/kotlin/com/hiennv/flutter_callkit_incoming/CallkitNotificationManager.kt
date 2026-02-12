@@ -831,6 +831,13 @@ class CallkitNotificationManager(
         val notificationId =
             data.getString(CallkitConstants.EXTRA_CALLKIT_ID, "callkit_incoming").hashCode()
         getNotificationManager().cancel(notificationId)
+        // Also clear any ongoing call notification for this call
+        val callingId = data.getString(
+            CallkitConstants.EXTRA_CALLKIT_CALLING_ID,
+            data.getString(CallkitConstants.EXTRA_CALLKIT_ID, "callkit_incoming")
+        )
+        val onGoingNotificationId = ("ongoing_$callingId").hashCode()
+        getNotificationManager().cancel(onGoingNotificationId)
         targetInComingAvatarDefault?.let {
             targetInComingAvatarDefault?.isCancelled = true
             targetInComingAvatarDefault = null
@@ -993,9 +1000,7 @@ class CallkitNotificationManager(
     @SuppressLint("MissingPermission")
     fun showIncomingNotification(data: Bundle) {
         val callkitNotification = getIncomingNotification(data)
-        if (incomingChannelEnabled()) {
-            callkitSoundPlayerManager?.play(data)
-        }
+        callkitSoundPlayerManager?.play(data)
         callkitNotification?.let {
             getNotificationManager().notify(
                 it.id, callkitNotification.notification
@@ -1139,5 +1144,3 @@ class CallkitNotificationManager(
 }
 
 data class CallkitNotification(val id: Int, val notification: Notification)
-
-

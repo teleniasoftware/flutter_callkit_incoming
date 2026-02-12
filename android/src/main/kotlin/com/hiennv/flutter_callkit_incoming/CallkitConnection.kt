@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.telecom.CallAudioState
 import android.telecom.Connection
 import android.util.Log
 import androidx.annotation.RequiresApi
@@ -81,6 +82,29 @@ class CallkitConnection(
         destroy()
         
         // Remove from connection manager
-        CallkitConnectionManager.removeConnection(callUuid)
+        CallkitConnectionManager.removeConnection(callUuid, this)
+        if (callUuid.isNotEmpty()) {
+            CallkitTelecomRegistry.clear(callUuid)
+        }
+
+        // Best-effort audio cleanup if no active calls remain
+        CallkitAudioCleanup.resetIfNoActiveCalls(context)
+    }
+
+    override fun onCallAudioStateChanged(state: CallAudioState?) {
+        super.onCallAudioStateChanged(state)
+        if (state == null) return
+
+        val body = mapOf(
+            "id" to callUuid,
+            "route" to state.route,
+            "supportedRouteMask" to state.supportedRouteMask,
+            "isMuted" to state.isMuted
+        )
+
+        FlutterCallkitIncomingPlugin.sendEvent(
+            CallkitConstants.ACTION_CALL_AUDIO_STATE_CHANGE,
+            body
+        )
     }
 }

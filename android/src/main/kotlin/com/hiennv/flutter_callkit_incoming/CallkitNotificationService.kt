@@ -68,9 +68,8 @@ class CallkitNotificationService : Service() {
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
     }
 
-    // Get notification manager dynamically to handle plugin lifecycle properly
     private fun getCallkitNotificationManager(): CallkitNotificationManager? {
-        return FlutterCallkitIncomingPlugin.getInstance()?.getCallkitNotificationManager()
+        return CallkitNotificationManagerProvider.get(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -103,8 +102,15 @@ class CallkitNotificationService : Service() {
             stopRingbackTone()
         }
         if (intent?.action === CallkitConstants.ACTION_CALL_CONNECTED) {
-            // Now that the call is connected, request focus for voice audio.
-            ensureCallAudioKeepAlive()
+            // Now that the call is connected, ensure we are a proper foreground service.
+            intent.getBundleExtra(CallkitConstants.EXTRA_CALLKIT_INCOMING_DATA)
+                ?.let {
+                    getCallkitNotificationManager()?.createNotificationChanel(it)
+                    showOngoingCallNotification(it)
+                } ?: run {
+                    // Fallback to audio focus even if data is missing.
+                    ensureCallAudioKeepAlive()
+                }
             stopRingbackTone()
         }
         return START_STICKY
@@ -283,6 +289,12 @@ class CallkitNotificationService : Service() {
     }
 
     override fun onDestroy() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+        } else {
+            @Suppress("DEPRECATION")
+            stopForeground(true)
+        }
         super.onDestroy()
         stopRingbackTone()
         releaseAudioFocus()

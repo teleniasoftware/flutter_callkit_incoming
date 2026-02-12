@@ -1,11 +1,15 @@
 package com.hiennv.flutter_callkit_incoming
 
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothProfile
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.media.MediaPlayer
 import android.media.Ringtone
 import android.media.RingtoneManager
 import android.net.Uri
@@ -18,8 +22,13 @@ class CallkitSoundPlayerManager(private val context: Context) {
     private var audioManager: AudioManager? = null
 
     private var ringtone: Ringtone? = null
+    private var ringtonePlayer: MediaPlayer? = null
 
     private var isPlaying: Boolean = false
+    private var previousAudioMode: Int? = null
+    private var bluetoothScoStarted = false
+    private var bluetoothRoutingEnabled = false
+    private var previousCommunicationDevice: AudioDeviceInfo? = null
 
 
     inner class ScreenOffCallkitIncomingBroadcastReceiver : BroadcastReceiver() {
@@ -49,9 +58,8 @@ class CallkitSoundPlayerManager(private val context: Context) {
     fun stop() {
         this.isPlaying = false
 
-        ringtone?.stop()
+        stopPlayback()
         vibrator?.cancel()
-        ringtone = null
         vibrator = null
         try {
             context.unregisterReceiver(screenOffCallkitIncomingBroadcastReceiver)
@@ -61,9 +69,8 @@ class CallkitSoundPlayerManager(private val context: Context) {
     fun destroy() {
         this.isPlaying = false
 
-        ringtone?.stop()
+        stopPlayback()
         vibrator?.cancel()
-        ringtone = null
         vibrator = null
         try {
             context.unregisterReceiver(screenOffCallkitIncomingBroadcastReceiver)
@@ -71,7 +78,7 @@ class CallkitSoundPlayerManager(private val context: Context) {
     }
 
     private fun prepare() {
-        ringtone?.stop()
+        stopPlayback()
         vibrator?.cancel()
     }
 
@@ -105,7 +112,12 @@ class CallkitSoundPlayerManager(private val context: Context) {
 
     private fun playSound(data: Bundle?) {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        if (audioManager.ringerMode != AudioManager.RINGER_MODE_NORMAL) {
+        this.audioManager = audioManager
+
+        val bluetoothDevice = getBluetoothOutputDevice(audioManager)
+        val bluetoothConnected =
+            bluetoothDevice != null || isBluetoothConnectedLegacy(audioManager)
+        if (audioManager.ringerMode != AudioManager.RINGER_MODE_NORMAL && !bluetoothConnected) {
             return
         }
 
@@ -116,27 +128,46 @@ class CallkitSoundPlayerManager(private val context: Context) {
         val uri = sound?.let { getRingtoneUri(it) }
         if (uri == null) return
 
+        // Prefer ringtone usage; only use voice usage when the selected BT device is SCO-only.
+        val useVoiceUsage = isBluetoothScoDevice(bluetoothDevice)
+        val attributes = AudioAttributes.Builder()
+            .setUsage(
+                if (useVoiceUsage) AudioAttributes.USAGE_VOICE_COMMUNICATION
+                else AudioAttributes.USAGE_NOTIFICATION_RINGTONE
+            )
+            .setContentType(
+                if (useVoiceUsage) AudioAttributes.CONTENT_TYPE_SPEECH
+                else AudioAttributes.CONTENT_TYPE_SONIFICATION
+            )
+            .build()
+
         try {
-            ringtone = RingtoneManager.getRingtone(context, uri)
+            if (useVoiceUsage) {
+                enableBluetoothRouting(audioManager, bluetoothDevice)
+            }
 
-            // Set audio attributes for Bluetooth
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                val attribution = AudioAttributes.Builder()
-                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
-                    .setLegacyStreamType(AudioManager.STREAM_RING)
-                    .build()
-                ringtone?.setAudioAttributes(attribution)
+            if (bluetoothConnected || Build.VERSION.SDK_INT < Build.VERSION_CODES.P) {
+                val player = MediaPlayer()
+                player.setAudioAttributes(attributes)
+                player.setDataSource(context, uri)
+                player.isLooping = true
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && bluetoothDevice != null) {
+                    player.setPreferredDevice(bluetoothDevice)
+                }
+                player.prepare()
+                player.start()
+                ringtonePlayer = player
             } else {
-                ringtone?.streamType = AudioManager.STREAM_RING
+                ringtone = RingtoneManager.getRingtone(context, uri)
+                ringtone?.setAudioAttributes(attributes)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    ringtone?.isLooping = true
+                }
+                ringtone?.play()
             }
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                ringtone?.isLooping = true
-            }
-            ringtone?.play()
         } catch (e: Exception) {
             e.printStackTrace()
+            stopPlayback()
         }
     }
 
@@ -216,5 +247,147 @@ class CallkitSoundPlayerManager(private val context: Context) {
             e.printStackTrace()
         }
         return null
+    }
+
+    private fun stopPlayback() {
+        try {
+            ringtone?.stop()
+        } catch (_: Exception) {
+        }
+        ringtone = null
+
+        ringtonePlayer?.let { player ->
+            try {
+                if (player.isPlaying) {
+                    player.stop()
+                }
+            } catch (_: Exception) {
+            }
+            player.release()
+        }
+        ringtonePlayer = null
+
+        audioManager?.let { manager ->
+            disableBluetoothRouting(manager)
+        }
+    }
+
+    private fun isBluetoothConnectedLegacy(audioManager: AudioManager): Boolean {
+        return audioManager.isBluetoothA2dpOn || audioManager.isBluetoothScoOn
+    }
+
+    private fun getBluetoothOutputDevice(audioManager: AudioManager): AudioDeviceInfo? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return null
+        val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
+        // Prefer A2DP/ble speaker for ringtone to avoid SCO beeps.
+        return devices.firstOrNull { isBluetoothRingtoneDevice(it) }
+            ?: devices.firstOrNull { isBluetoothOutput(it) }
+    }
+
+    private fun isBluetoothRingtoneDevice(device: AudioDeviceInfo): Boolean {
+        return when (device.type) {
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> true
+            else -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                device.type == AudioDeviceInfo.TYPE_BLE_SPEAKER
+            } else {
+                false
+            }
+        }
+    }
+
+    private fun isBluetoothOutput(device: AudioDeviceInfo): Boolean {
+        return when (device.type) {
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP,
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> true
+            else -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                device.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                    device.type == AudioDeviceInfo.TYPE_BLE_SPEAKER
+            } else {
+                false
+            }
+        }
+    }
+
+    private fun hasBluetoothCommunicationDevice(manager: AudioManager): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
+        return manager.availableCommunicationDevices.any { device ->
+            device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                device.type == AudioDeviceInfo.TYPE_BLE_HEADSET
+        }
+    }
+
+    private fun isBluetoothHeadsetConnectedLegacy(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return false
+        return try {
+            val adapter = BluetoothAdapter.getDefaultAdapter() ?: return false
+            adapter.getProfileConnectionState(BluetoothProfile.HEADSET) ==
+                BluetoothProfile.STATE_CONNECTED
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun isBluetoothScoDevice(device: AudioDeviceInfo?): Boolean {
+        if (device == null) return false
+        return when (device.type) {
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> true
+            else -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                device.type == AudioDeviceInfo.TYPE_BLE_HEADSET
+            } else {
+                false
+            }
+        }
+    }
+
+    private fun enableBluetoothRouting(manager: AudioManager, bluetoothDevice: AudioDeviceInfo?) {
+        if (bluetoothRoutingEnabled) return
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val btDevice = manager.availableCommunicationDevices.firstOrNull { device ->
+                device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                    device.type == AudioDeviceInfo.TYPE_BLE_HEADSET
+            }
+            if (btDevice != null) {
+                previousCommunicationDevice = manager.communicationDevice
+                manager.setCommunicationDevice(btDevice)
+                bluetoothRoutingEnabled = true
+                return
+            }
+        }
+
+        val canUseSco =
+            manager.isBluetoothScoAvailableOffCall || isBluetoothHeadsetConnectedLegacy()
+        if (!canUseSco) return
+
+        bluetoothRoutingEnabled = true
+        previousAudioMode = manager.mode
+        manager.mode = AudioManager.MODE_IN_COMMUNICATION
+        if (!manager.isBluetoothScoOn) {
+            bluetoothScoStarted = true
+            manager.startBluetoothSco()
+            manager.isBluetoothScoOn = true
+        }
+    }
+
+    private fun disableBluetoothRouting(manager: AudioManager) {
+        if (!bluetoothRoutingEnabled) return
+        bluetoothRoutingEnabled = false
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            previousCommunicationDevice?.let { manager.setCommunicationDevice(it) }
+            previousCommunicationDevice = null
+        }
+
+        if (bluetoothScoStarted) {
+            try {
+                manager.stopBluetoothSco()
+            } catch (_: Exception) {
+            }
+            manager.isBluetoothScoOn = false
+            bluetoothScoStarted = false
+        }
+
+        previousAudioMode?.let { manager.mode = it }
+        previousAudioMode = null
     }
 }

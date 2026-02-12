@@ -19,9 +19,10 @@ class InAppCallManager(private val context: Context) {
         private const val TAG = "InAppCallManager"
         const val EXTRA_CALL_UUID = "com.hiennv.flutter_callkit_incoming.CALL_UUID"
         const val EXTRA_CALL_DATA = "com.hiennv.flutter_callkit_incoming.CALL_DATA"
+        const val EXTRA_CALL_IS_OUTGOING = "com.hiennv.flutter_callkit_incoming.CALL_IS_OUTGOING"
         
         @RequiresApi(Build.VERSION_CODES.M)
-        fun registerIncomingCall(context: Context, data: Bundle) {
+        fun registerIncomingCall(context: Context, data: Bundle, isOutgoing: Boolean = false) {
             try {
                 Log.d(TAG, "registerIncomingCall called")
                 
@@ -40,6 +41,10 @@ class InAppCallManager(private val context: Context) {
                     Log.e(TAG, "Returning early: callUuid is null or empty!")
                     return
                 }
+                if (CallkitTelecomRegistry.isRegisteringOrRegistered(callUuid)) {
+                    Log.w(TAG, "Skipping registerIncomingCall: already registering/registered $callUuid")
+                    return
+                }
                 
                 val nameCaller = data.getString(CallkitConstants.EXTRA_CALLKIT_NAME_CALLER) ?: "Unknown"
                 val number = data.getString(CallkitConstants.EXTRA_CALLKIT_HANDLE) ?: ""
@@ -50,12 +55,14 @@ class InAppCallManager(private val context: Context) {
                 val extras = Bundle().apply {
                     putString(EXTRA_CALL_UUID, callUuid)
                     putBundle(EXTRA_CALL_DATA, data)
+                    putBoolean(EXTRA_CALL_IS_OUTGOING, isOutgoing)
                     putParcelable(TelecomManager.EXTRA_INCOMING_CALL_ADDRESS, Uri.parse("tel:$number"))
                 }
                 
                 Log.d(TAG, "Registering incoming call with TelecomManager: UUID=$callUuid, Caller=$nameCaller")
                 
                 // Register the incoming call with Android's telecom framework
+                CallkitTelecomRegistry.markRegistering(callUuid)
                 telecomManager.addNewIncomingCall(phoneAccountHandle, extras)
                 
                 Log.d(TAG, "Successfully registered incoming call with TelecomManager")
