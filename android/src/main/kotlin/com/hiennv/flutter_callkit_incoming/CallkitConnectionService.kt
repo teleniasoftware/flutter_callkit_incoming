@@ -43,6 +43,9 @@ class CallkitConnectionService : ConnectionService() {
         
         // Register connection so we can control it from Dart
         CallkitConnectionManager.addConnection(callUuid, connection)
+        if (callUuid.isNotEmpty()) {
+            CallkitTelecomRegistry.markRegistered(callUuid)
+        }
         
         return connection
     }

@@ -82,7 +82,13 @@ class CallkitConnection(
         destroy()
         
         // Remove from connection manager
-        CallkitConnectionManager.removeConnection(callUuid)
+        CallkitConnectionManager.removeConnection(callUuid, this)
+        if (callUuid.isNotEmpty()) {
+            CallkitTelecomRegistry.clear(callUuid)
+        }
+
+        // Best-effort audio cleanup if no active calls remain
+        CallkitAudioCleanup.resetIfNoActiveCalls(context)
     }
 
     override fun onCallAudioStateChanged(state: CallAudioState?) {

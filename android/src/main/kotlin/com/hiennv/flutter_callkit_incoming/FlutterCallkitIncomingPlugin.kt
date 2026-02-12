@@ -3,6 +3,8 @@ package com.hiennv.flutter_callkit_incoming
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -155,17 +157,21 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
         if (context == null) return false
         var emitted = false
-        CallkitConnectionManager.getAllConnections().forEach { (uuid, connection) ->
+        CallkitConnectionManager.getAllConnections().forEach { (uuid, connections) ->
             if (uuid == activeUuid) {
-                if (connection.state != android.telecom.Connection.STATE_ACTIVE) {
-                    connection.setActive()
+                connections.forEach { connection ->
+                    if (connection.state != android.telecom.Connection.STATE_ACTIVE) {
+                        connection.setActive()
+                    }
                 }
                 emitted = syncHoldState(uuid, false, emitEvent = true) || emitted
             } else {
-                if (connection.state != android.telecom.Connection.STATE_HOLDING) {
-                    connection.setOnHold()
-                    emitted = syncHoldState(uuid, true, emitEvent = true) || emitted
+                connections.forEach { connection ->
+                    if (connection.state != android.telecom.Connection.STATE_HOLDING) {
+                        connection.setOnHold()
+                    }
                 }
+                emitted = syncHoldState(uuid, true, emitEvent = true) || emitted
             }
         }
         return emitted
@@ -389,6 +395,25 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                                 )
                             )
                         }
+                    } else if (context != null) {
+                        // Fallback: ensure any ongoing call notification/service is cleared
+                        CallkitNotificationManagerProvider.get(requireNotNull(context))
+                            ?.clearIncomingNotification(data.toBundle(), false)
+                        if (calls.isEmpty()) {
+                            CallkitNotificationService.stopService(requireNotNull(context))
+                        }
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                            val callUuid = data.id
+                            if (callUuid.isNotEmpty()) {
+                                CallkitConnectionManager.getConnections(callUuid).forEach { conn ->
+                                    conn.setDisconnected(android.telecom.DisconnectCause(android.telecom.DisconnectCause.LOCAL))
+                                    conn.destroy()
+                                }
+                                CallkitConnectionManager.removeConnection(callUuid)
+                                CallkitTelecomRegistry.clear(callUuid)
+                            }
+                        }
+                        CallkitAudioCleanup.resetIfNoActiveCalls(requireNotNull(context))
                     }
                     result.success(true)
                 }
@@ -434,6 +459,9 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                         }
                     }
                     removeAllCalls(context)
+                    if (context != null) {
+                        CallkitAudioCleanup.resetIfNoActiveCalls(requireNotNull(context))
+                    }
                     result.success(true)
                 }
 
@@ -495,8 +523,8 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                     val route = map["route"] as? Int ?: 0 // 0=earpiece, 1=speaker, 2=bluetooth
                     
                     if (uuid != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                        val connection = CallkitConnectionManager.getConnection(uuid)
-                        if (connection != null) {
+                        val connections = CallkitConnectionManager.getConnections(uuid)
+                        if (connections.isNotEmpty()) {
                             // Map Flutter route to Android CallAudioState route
                             val audioRoute = when (route) {
                                 1 -> android.telecom.CallAudioState.ROUTE_SPEAKER
@@ -505,8 +533,13 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                                 else -> android.telecom.CallAudioState.ROUTE_EARPIECE
                             }
                             
-                            connection.setAudioRoute(audioRoute)
+                            connections.forEach { connection ->
+                                applySupportedAudioRoutes(connection, route)
+                                connection.setAudioRoute(audioRoute)
+                            }
                             android.util.Log.d("CallkitIncoming", "Set audio route to $audioRoute for call $uuid")
+                            // Best-effort enforcement: prevent Bluetooth from immediately re-asserting
+                            applyAudioRouteOverride(route)
                             result.success(true)
                         } else {
                             android.util.Log.w("CallkitIncoming", "Connection not found for uuid: $uuid")
@@ -519,6 +552,102 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
             }
         } catch (error: Exception) {
             result.error("error", error.message, "")
+        }
+    }
+
+    private fun applySupportedAudioRoutes(connection: CallkitConnection, requestedRoute: Int) {
+        try {
+            val baseMask = connection.callAudioState?.supportedRouteMask
+                ?: (android.telecom.CallAudioState.ROUTE_EARPIECE or
+                    android.telecom.CallAudioState.ROUTE_SPEAKER or
+                    android.telecom.CallAudioState.ROUTE_WIRED_HEADSET or
+                    android.telecom.CallAudioState.ROUTE_BLUETOOTH)
+
+            val newMask = if (requestedRoute == 2) {
+                baseMask or android.telecom.CallAudioState.ROUTE_BLUETOOTH
+            } else {
+                baseMask and android.telecom.CallAudioState.ROUTE_BLUETOOTH.inv()
+            }
+            // setSupportedAudioRoutes is not available on all compile SDKs; call via reflection when present.
+            try {
+                val method = connection.javaClass.getMethod(
+                    "setSupportedAudioRoutes",
+                    Int::class.javaPrimitiveType
+                )
+                method.invoke(connection, newMask)
+            } catch (_: Exception) {
+            }
+        } catch (_: Exception) {
+        }
+    }
+    private fun applyAudioRouteOverride(route: Int) {
+        val ctx = context ?: return
+        val audioManager = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        try {
+            try {
+                audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+            } catch (_: Exception) {
+            }
+            if (route != 2) {
+                // Ensure we do not keep SCO active when user selects non-BT route
+                try {
+                    audioManager.stopBluetoothSco()
+                } catch (_: Exception) {
+                }
+                audioManager.isBluetoothScoOn = false
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (route != 2) {
+                    try {
+                        audioManager.clearCommunicationDevice()
+                    } catch (_: Exception) {
+                    }
+                }
+                val devices = audioManager.availableCommunicationDevices
+                val target = when (route) {
+                    1 -> devices.firstOrNull {
+                        it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                    }
+                    0 -> devices.firstOrNull {
+                        it.type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE
+                    }
+                    3 -> devices.firstOrNull {
+                        it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                            it.type == AudioDeviceInfo.TYPE_WIRED_HEADPHONES
+                    }
+                    2 -> devices.firstOrNull {
+                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                            it.type == AudioDeviceInfo.TYPE_BLE_HEADSET
+                    }
+                    else -> null
+                }
+                if (target != null) {
+                    audioManager.setCommunicationDevice(target)
+                } else if (route != 2) {
+                    // Clear preferred device for non-BT routes if not found.
+                    audioManager.clearCommunicationDevice()
+                }
+                @Suppress("DEPRECATION")
+                if (route == 1) {
+                    audioManager.isSpeakerphoneOn = true
+                } else if (route == 0 || route == 3) {
+                    audioManager.isSpeakerphoneOn = false
+                }
+            } else {
+                if (route == 1) {
+                    audioManager.isSpeakerphoneOn = true
+                } else if (route == 0 || route == 3) {
+                    audioManager.isSpeakerphoneOn = false
+                }
+                if (route != 2) {
+                    try {
+                        audioManager.stopBluetoothSco()
+                    } catch (_: Exception) {
+                    }
+                    audioManager.isBluetoothScoOn = false
+                }
+            }
+        } catch (_: Exception) {
         }
     }
 

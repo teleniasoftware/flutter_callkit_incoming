@@ -155,22 +155,24 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
                     FlutterCallkitIncomingPlugin.notifyEventCallbacks(CallkitEventCallback.CallEvent.DECLINE, data)
                     // clear notification
                     getCallkitNotificationManager(context)?.clearIncomingNotification(data, false)
+                    CallkitNotificationService.stopService(context)
                     
                     // Destroy the Connection so Android knows the call ended
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                         val callUuid = data.getString(CallkitConstants.EXTRA_CALLKIT_ID)
                         if (callUuid != null) {
-                            val connection = CallkitConnectionManager.getConnection(callUuid)
-                            connection?.let {
-                                it.setDisconnected(android.telecom.DisconnectCause(android.telecom.DisconnectCause.REJECTED))
-                                it.destroy()
+                            CallkitConnectionManager.getConnections(callUuid).forEach { conn ->
+                                conn.setDisconnected(android.telecom.DisconnectCause(android.telecom.DisconnectCause.REJECTED))
+                                conn.destroy()
                             }
                             CallkitConnectionManager.removeConnection(callUuid)
+                            CallkitTelecomRegistry.clear(callUuid)
                         }
                     }
                     
                     sendEventFlutter(CallkitConstants.ACTION_CALL_DECLINE, data)
                     removeCall(context, Data.fromBundle(data))
+                    CallkitAudioCleanup.resetIfNoActiveCalls(context)
                 } catch (error: Exception) {
                     Log.e(TAG, null, error)
                 }
@@ -186,17 +188,18 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                         val callUuid = data.getString(CallkitConstants.EXTRA_CALLKIT_ID)
                         if (callUuid != null) {
-                            val connection = CallkitConnectionManager.getConnection(callUuid)
-                            connection?.let {
-                                it.setDisconnected(android.telecom.DisconnectCause(android.telecom.DisconnectCause.LOCAL))
-                                it.destroy()
+                            CallkitConnectionManager.getConnections(callUuid).forEach { conn ->
+                                conn.setDisconnected(android.telecom.DisconnectCause(android.telecom.DisconnectCause.LOCAL))
+                                conn.destroy()
                             }
                             CallkitConnectionManager.removeConnection(callUuid)
+                            CallkitTelecomRegistry.clear(callUuid)
                         }
                     }
                     
                     sendEventFlutter(CallkitConstants.ACTION_CALL_ENDED, data)
                     removeCall(context, Data.fromBundle(data))
+                    CallkitAudioCleanup.resetIfNoActiveCalls(context)
                 } catch (error: Exception) {
                     Log.e(TAG, null, error)
                 }
@@ -208,8 +211,21 @@ class CallkitIncomingBroadcastReceiver : BroadcastReceiver() {
                     val notificationManager = getCallkitNotificationManager(context)
                     notificationManager?.clearIncomingNotification(data, false)
                     notificationManager?.showMissCallNotification(data)
+                    CallkitNotificationService.stopService(context)
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                        val callUuid = data.getString(CallkitConstants.EXTRA_CALLKIT_ID)
+                        if (callUuid != null) {
+                            CallkitConnectionManager.getConnections(callUuid).forEach { conn ->
+                                conn.setDisconnected(android.telecom.DisconnectCause(android.telecom.DisconnectCause.MISSED))
+                                conn.destroy()
+                            }
+                            CallkitConnectionManager.removeConnection(callUuid)
+                            CallkitTelecomRegistry.clear(callUuid)
+                        }
+                    }
                     sendEventFlutter(CallkitConstants.ACTION_CALL_TIMEOUT, data)
                     removeCall(context, Data.fromBundle(data))
+                    CallkitAudioCleanup.resetIfNoActiveCalls(context)
                 } catch (error: Exception) {
                     Log.e(TAG, null, error)
                 }

@@ -41,6 +41,10 @@ class InAppCallManager(private val context: Context) {
                     Log.e(TAG, "Returning early: callUuid is null or empty!")
                     return
                 }
+                if (CallkitTelecomRegistry.isRegisteringOrRegistered(callUuid)) {
+                    Log.w(TAG, "Skipping registerIncomingCall: already registering/registered $callUuid")
+                    return
+                }
                 
                 val nameCaller = data.getString(CallkitConstants.EXTRA_CALLKIT_NAME_CALLER) ?: "Unknown"
                 val number = data.getString(CallkitConstants.EXTRA_CALLKIT_HANDLE) ?: ""
@@ -58,6 +62,7 @@ class InAppCallManager(private val context: Context) {
                 Log.d(TAG, "Registering incoming call with TelecomManager: UUID=$callUuid, Caller=$nameCaller")
                 
                 // Register the incoming call with Android's telecom framework
+                CallkitTelecomRegistry.markRegistering(callUuid)
                 telecomManager.addNewIncomingCall(phoneAccountHandle, extras)
                 
                 Log.d(TAG, "Successfully registered incoming call with TelecomManager")
