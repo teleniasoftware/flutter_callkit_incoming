@@ -588,14 +588,6 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                 audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
             } catch (_: Exception) {
             }
-            if (route != 2) {
-                // Ensure we do not keep SCO active when user selects non-BT route
-                try {
-                    audioManager.stopBluetoothSco()
-                } catch (_: Exception) {
-                }
-                audioManager.isBluetoothScoOn = false
-            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 if (route != 2) {
                     try {
@@ -640,11 +632,13 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                     audioManager.isSpeakerphoneOn = false
                 }
                 if (route != 2) {
-                    try {
-                        audioManager.stopBluetoothSco()
-                    } catch (_: Exception) {
+                    if (audioManager.isBluetoothScoOn) {
+                        try {
+                            audioManager.stopBluetoothSco()
+                        } catch (_: Exception) {
+                        }
+                        audioManager.isBluetoothScoOn = false
                     }
-                    audioManager.isBluetoothScoOn = false
                 }
             }
         } catch (_: Exception) {

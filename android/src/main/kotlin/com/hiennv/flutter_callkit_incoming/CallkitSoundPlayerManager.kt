@@ -1,5 +1,7 @@
 package com.hiennv.flutter_callkit_incoming
 
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothProfile
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -126,7 +128,8 @@ class CallkitSoundPlayerManager(private val context: Context) {
         val uri = sound?.let { getRingtoneUri(it) }
         if (uri == null) return
 
-        val useVoiceUsage = bluetoothConnected
+        // Prefer ringtone usage; only use voice usage when the selected BT device is SCO-only.
+        val useVoiceUsage = isBluetoothScoDevice(bluetoothDevice)
         val attributes = AudioAttributes.Builder()
             .setUsage(
                 if (useVoiceUsage) AudioAttributes.USAGE_VOICE_COMMUNICATION
@@ -139,7 +142,7 @@ class CallkitSoundPlayerManager(private val context: Context) {
             .build()
 
         try {
-            if (bluetoothConnected) {
+            if (useVoiceUsage) {
                 enableBluetoothRouting(audioManager, bluetoothDevice)
             }
 
@@ -276,7 +279,20 @@ class CallkitSoundPlayerManager(private val context: Context) {
     private fun getBluetoothOutputDevice(audioManager: AudioManager): AudioDeviceInfo? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return null
         val devices = audioManager.getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-        return devices.firstOrNull { isBluetoothOutput(it) }
+        // Prefer A2DP/ble speaker for ringtone to avoid SCO beeps.
+        return devices.firstOrNull { isBluetoothRingtoneDevice(it) }
+            ?: devices.firstOrNull { isBluetoothOutput(it) }
+    }
+
+    private fun isBluetoothRingtoneDevice(device: AudioDeviceInfo): Boolean {
+        return when (device.type) {
+            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> true
+            else -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                device.type == AudioDeviceInfo.TYPE_BLE_SPEAKER
+            } else {
+                false
+            }
+        }
     }
 
     private fun isBluetoothOutput(device: AudioDeviceInfo): Boolean {
@@ -286,6 +302,37 @@ class CallkitSoundPlayerManager(private val context: Context) {
             else -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 device.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
                     device.type == AudioDeviceInfo.TYPE_BLE_SPEAKER
+            } else {
+                false
+            }
+        }
+    }
+
+    private fun hasBluetoothCommunicationDevice(manager: AudioManager): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return false
+        return manager.availableCommunicationDevices.any { device ->
+            device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                device.type == AudioDeviceInfo.TYPE_BLE_HEADSET
+        }
+    }
+
+    private fun isBluetoothHeadsetConnectedLegacy(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return false
+        return try {
+            val adapter = BluetoothAdapter.getDefaultAdapter() ?: return false
+            adapter.getProfileConnectionState(BluetoothProfile.HEADSET) ==
+                BluetoothProfile.STATE_CONNECTED
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun isBluetoothScoDevice(device: AudioDeviceInfo?): Boolean {
+        if (device == null) return false
+        return when (device.type) {
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> true
+            else -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                device.type == AudioDeviceInfo.TYPE_BLE_HEADSET
             } else {
                 false
             }
@@ -308,16 +355,9 @@ class CallkitSoundPlayerManager(private val context: Context) {
             }
         }
 
-        val skipSco = bluetoothDevice != null && when (bluetoothDevice.type) {
-            AudioDeviceInfo.TYPE_BLUETOOTH_A2DP -> true
-            else -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                bluetoothDevice.type == AudioDeviceInfo.TYPE_BLE_SPEAKER
-            } else {
-                false
-            }
-        }
-        if (skipSco) return
-        if (!manager.isBluetoothScoAvailableOffCall) return
+        val canUseSco =
+            manager.isBluetoothScoAvailableOffCall || isBluetoothHeadsetConnectedLegacy()
+        if (!canUseSco) return
 
         bluetoothRoutingEnabled = true
         previousAudioMode = manager.mode
