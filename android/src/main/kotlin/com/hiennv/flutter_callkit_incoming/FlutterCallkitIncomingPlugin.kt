@@ -521,6 +521,11 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                     
                     val uuid = map["uuid"] as? String
                     val route = map["route"] as? Int ?: 0 // 0=earpiece, 1=speaker, 2=bluetooth
+                    emitAudioLog(
+                        level = "info",
+                        message = "setAudioRoute request uuid=${uuid ?: "null"} route=${flutterRouteName(route)}($route)",
+                        extras = mapOf("uuid" to uuid, "route" to route)
+                    )
                     
                     if (uuid != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
                         val connections = CallkitConnectionManager.getConnections(uuid)
@@ -532,6 +537,16 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                                 3 -> android.telecom.CallAudioState.ROUTE_WIRED_HEADSET
                                 else -> android.telecom.CallAudioState.ROUTE_EARPIECE
                             }
+
+                            emitAudioLog(
+                                level = "debug",
+                                message = "sending request to system to change route to ${callAudioRouteName(audioRoute)} for call $uuid",
+                                extras = mapOf(
+                                    "uuid" to uuid,
+                                    "route" to route,
+                                    "connectionsCount" to connections.size
+                                )
+                            )
                             
                             connections.forEach { connection ->
                                 applySupportedAudioRoutes(connection, route)
@@ -540,17 +555,35 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                             android.util.Log.d("CallkitIncoming", "Set audio route to $audioRoute for call $uuid")
                             // Best-effort enforcement: prevent Bluetooth from immediately re-asserting
                             applyAudioRouteOverride(route)
+                            emitAudioLog(
+                                level = "info",
+                                message = "setAudioRoute completed uuid=$uuid route=${flutterRouteName(route)}($route)"
+                            )
                             result.success(true)
                         } else {
                             android.util.Log.w("CallkitIncoming", "Connection not found for uuid: $uuid")
+                            emitAudioLog(
+                                level = "warn",
+                                message = "setAudioRoute skipped: no active connection for uuid=$uuid",
+                                extras = mapOf("uuid" to uuid, "route" to route)
+                            )
                             result.success(false)
                         }
                     } else {
+                        emitAudioLog(
+                            level = "warn",
+                            message = "setAudioRoute rejected: invalid uuid or unsupported API (uuid=$uuid)",
+                            extras = mapOf("uuid" to uuid, "route" to route)
+                        )
                         result.success(false)
                     }
                 }
             }
         } catch (error: Exception) {
+            emitAudioLog(
+                level = "error",
+                message = "method ${call.method} failed: ${error.message ?: "unknown error"}"
+            )
             result.error("error", error.message, "")
         }
     }
@@ -589,6 +622,8 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
             } catch (_: Exception) {
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val availableDevices = describeCommunicationDevices(audioManager.availableCommunicationDevices)
+                val beforeDevice = describeCommunicationDevice(audioManager.communicationDevice)
                 if (route != 2) {
                     try {
                         audioManager.clearCommunicationDevice()
@@ -613,6 +648,7 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                     }
                     else -> null
                 }
+                val targetDevice = describeCommunicationDevice(target)
                 if (target != null) {
                     audioManager.setCommunicationDevice(target)
                 } else if (route != 2) {
@@ -625,6 +661,12 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                 } else if (route == 0 || route == 3) {
                     audioManager.isSpeakerphoneOn = false
                 }
+                val afterDevice = describeCommunicationDevice(audioManager.communicationDevice)
+                emitAudioLog(
+                    level = "debug",
+                    message = "applyAudioRouteOverride route=${flutterRouteName(route)} before=$beforeDevice after=$afterDevice target=$targetDevice visible=$availableDevices",
+                    extras = mapOf("route" to route)
+                )
             } else {
                 if (route == 1) {
                     audioManager.isSpeakerphoneOn = true
@@ -640,8 +682,83 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                         audioManager.isBluetoothScoOn = false
                     }
                 }
+                emitAudioLog(
+                    level = "debug",
+                    message = "applyAudioRouteOverride legacy route=${flutterRouteName(route)} speaker=${audioManager.isSpeakerphoneOn} sco=${audioManager.isBluetoothScoOn}",
+                    extras = mapOf("route" to route)
+                )
             }
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            emitAudioLog(
+                level = "warn",
+                message = "applyAudioRouteOverride failed route=${flutterRouteName(route)} error=${error.message ?: "unknown"}",
+                extras = mapOf("route" to route)
+            )
+        }
+    }
+
+    private fun emitAudioLog(
+        level: String,
+        message: String,
+        extras: Map<String, Any?> = emptyMap()
+    ) {
+        val body = mutableMapOf<String, Any?>(
+            "source" to "f_c_i",
+            "level" to level.lowercase(),
+            "message" to message
+        )
+        body.putAll(extras)
+        sendEvent(CallkitConstants.ACTION_CALL_CUSTOM, body)
+
+        when (level.lowercase()) {
+            "error" -> android.util.Log.e("CallkitIncoming", message)
+            "warn" -> android.util.Log.w("CallkitIncoming", message)
+            "debug" -> android.util.Log.d("CallkitIncoming", message)
+            else -> android.util.Log.i("CallkitIncoming", message)
+        }
+    }
+
+    private fun flutterRouteName(route: Int): String {
+        return when (route) {
+            1 -> "speaker"
+            2 -> "bluetooth"
+            3 -> "wired"
+            else -> "earpiece"
+        }
+    }
+
+    private fun callAudioRouteName(route: Int): String {
+        return when (route) {
+            android.telecom.CallAudioState.ROUTE_EARPIECE -> "earpiece"
+            android.telecom.CallAudioState.ROUTE_BLUETOOTH -> "bluetooth"
+            android.telecom.CallAudioState.ROUTE_WIRED_HEADSET -> "wired"
+            android.telecom.CallAudioState.ROUTE_SPEAKER -> "speaker"
+            else -> "unknown($route)"
+        }
+    }
+
+    private fun describeCommunicationDevices(devices: List<AudioDeviceInfo>): String {
+        if (devices.isEmpty()) return "none"
+        return devices.joinToString(separator = ", ") { describeCommunicationDevice(it) }
+    }
+
+    private fun describeCommunicationDevice(device: AudioDeviceInfo?): String {
+        if (device == null) return "none"
+        val deviceName = device.productName?.toString()?.takeIf { it.isNotBlank() } ?: "unnamed"
+        return "${audioDeviceTypeName(device.type)}:$deviceName"
+    }
+
+    private fun audioDeviceTypeName(type: Int): String {
+        return when (type) {
+            AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "earpiece"
+            AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "speaker"
+            AudioDeviceInfo.TYPE_WIRED_HEADSET -> "wired_headset"
+            AudioDeviceInfo.TYPE_WIRED_HEADPHONES -> "wired_headphones"
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO -> "bluetooth_sco"
+            AudioDeviceInfo.TYPE_BLE_HEADSET -> "ble_headset"
+            AudioDeviceInfo.TYPE_BLE_SPEAKER -> "ble_speaker"
+            AudioDeviceInfo.TYPE_BLE_BROADCAST -> "ble_broadcast"
+            else -> "type_$type"
         }
     }
 
