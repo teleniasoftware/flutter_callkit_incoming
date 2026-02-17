@@ -2,9 +2,12 @@ package com.hiennv.flutter_callkit_incoming
 
 import android.annotation.SuppressLint
 import android.app.Service
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.media.AudioDeviceInfo
 import android.media.AudioAttributes
 import android.media.AudioFocusRequest
 import android.media.AudioManager
@@ -60,6 +63,10 @@ class CallkitNotificationService : Service() {
     private var ringbackHandler: Handler? = null
     private var ringbackRunnable: Runnable? = null
     private var isRingbackPlaying = false
+    private var ringbackBluetoothRoutingEnabled = false
+    private var ringbackBluetoothScoStarted = false
+    private var ringbackPreviousAudioMode: Int? = null
+    private var ringbackPreviousCommunicationDevice: AudioDeviceInfo? = null
     private val RINGBACK_ON_MS = 2000L
     private val RINGBACK_OFF_MS = 2000L
 
@@ -78,7 +85,7 @@ class CallkitNotificationService : Service() {
                 ?.let {
                     if(it.getBoolean(CallkitConstants.EXTRA_CALLKIT_CALLING_SHOW, true)) {
                         getCallkitNotificationManager()?.createNotificationChanel(it)
-                        // Keep ringtone behavior while the outbound call is still ringing.
+                        // Keep outbound ringing behavior while waiting for answer.
                         showOngoingCallNotification(
                             it,
                             ringingAudio = true
@@ -90,6 +97,7 @@ class CallkitNotificationService : Service() {
             startRingbackTone()
         }
         if (intent?.action === CallkitConstants.ACTION_CALL_ACCEPT) {
+            stopRingbackTone()
             intent.getBundleExtra(CallkitConstants.EXTRA_CALLKIT_INCOMING_DATA)
                 ?.let {
                     getCallkitNotificationManager()?.clearIncomingNotification(it, true)
@@ -99,9 +107,9 @@ class CallkitNotificationService : Service() {
                         stopSelf()
                     }
                 }
-            stopRingbackTone()
         }
         if (intent?.action === CallkitConstants.ACTION_CALL_CONNECTED) {
+            stopRingbackTone()
             // Now that the call is connected, ensure we are a proper foreground service.
             intent.getBundleExtra(CallkitConstants.EXTRA_CALLKIT_INCOMING_DATA)
                 ?.let {
@@ -111,7 +119,6 @@ class CallkitNotificationService : Service() {
                     // Fallback to audio focus even if data is missing.
                     ensureCallAudioKeepAlive()
                 }
-            stopRingbackTone()
         }
         return START_STICKY
     }
@@ -162,8 +169,17 @@ class CallkitNotificationService : Service() {
     private fun startRingbackTone() {
         if (isRingbackPlaying) return
         isRingbackPlaying = true
+        val useVoiceCallStream = shouldUseCommunicationRingbackStream()
+        if (useVoiceCallStream) {
+            enableBluetoothRingbackRouting()
+        }
         if (ringbackTone == null) {
-            ringbackTone = ToneGenerator(AudioManager.STREAM_RING, 80)
+            val streamType = if (useVoiceCallStream) {
+                AudioManager.STREAM_VOICE_CALL
+            } else {
+                AudioManager.STREAM_RING
+            }
+            ringbackTone = ToneGenerator(streamType, 80)
         }
         if (ringbackHandler == null) {
             ringbackHandler = Handler(Looper.getMainLooper())
@@ -185,12 +201,111 @@ class CallkitNotificationService : Service() {
     }
 
     private fun stopRingbackTone() {
-        ringbackHandler?.removeCallbacks(ringbackRunnable ?: return)
+        ringbackRunnable?.let { runnable ->
+            ringbackHandler?.removeCallbacks(runnable)
+        }
         ringbackTone?.stopTone()
         ringbackTone?.release()
         ringbackTone = null
         ringbackRunnable = null
         isRingbackPlaying = false
+        disableBluetoothRingbackRouting()
+    }
+
+    private fun shouldUseCommunicationRingbackStream(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            audioManager.availableCommunicationDevices.any { device ->
+                device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                    device.type == AudioDeviceInfo.TYPE_BLE_HEADSET
+            }
+        } else {
+            audioManager.isBluetoothScoOn || isBluetoothHeadsetConnectedLegacy()
+        }
+    }
+
+    private fun enableBluetoothRingbackRouting() {
+        if (ringbackBluetoothRoutingEnabled) return
+        ringbackBluetoothRoutingEnabled = true
+
+        try {
+            ringbackPreviousAudioMode = audioManager.mode
+            audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        } catch (_: Exception) {
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                val bluetoothDevice = audioManager.availableCommunicationDevices.firstOrNull { device ->
+                    device.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                        device.type == AudioDeviceInfo.TYPE_BLE_HEADSET
+                }
+                if (bluetoothDevice != null) {
+                    ringbackPreviousCommunicationDevice = audioManager.communicationDevice
+                    audioManager.setCommunicationDevice(bluetoothDevice)
+                }
+            } catch (_: Exception) {
+            }
+            return
+        }
+
+        val canUseSco =
+            audioManager.isBluetoothScoAvailableOffCall || isBluetoothHeadsetConnectedLegacy()
+        if (!canUseSco) return
+
+        try {
+            if (!audioManager.isBluetoothScoOn) {
+                audioManager.startBluetoothSco()
+                audioManager.isBluetoothScoOn = true
+                ringbackBluetoothScoStarted = true
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun disableBluetoothRingbackRouting() {
+        if (!ringbackBluetoothRoutingEnabled) return
+        ringbackBluetoothRoutingEnabled = false
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                ringbackPreviousCommunicationDevice?.let {
+                    audioManager.setCommunicationDevice(it)
+                } ?: audioManager.clearCommunicationDevice()
+            } catch (_: Exception) {
+            }
+            ringbackPreviousCommunicationDevice = null
+        }
+
+        if (ringbackBluetoothScoStarted) {
+            try {
+                audioManager.stopBluetoothSco()
+            } catch (_: Exception) {
+            }
+            try {
+                audioManager.isBluetoothScoOn = false
+            } catch (_: Exception) {
+            }
+            ringbackBluetoothScoStarted = false
+        }
+
+        ringbackPreviousAudioMode?.let { previousMode ->
+            try {
+                audioManager.mode = previousMode
+            } catch (_: Exception) {
+            }
+        }
+        ringbackPreviousAudioMode = null
+    }
+
+    private fun isBluetoothHeadsetConnectedLegacy(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return false
+        return try {
+            val adapter = BluetoothAdapter.getDefaultAdapter() ?: return false
+            adapter.getProfileConnectionState(BluetoothProfile.HEADSET) ==
+                BluetoothProfile.STATE_CONNECTED
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun acquireWakeLock() {
