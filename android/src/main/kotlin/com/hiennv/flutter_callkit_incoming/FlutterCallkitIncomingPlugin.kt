@@ -2,6 +2,8 @@ package com.hiennv.flutter_callkit_incoming
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothProfile
 import android.content.Context
 import android.media.AudioDeviceInfo
 import android.media.AudioManager
@@ -554,12 +556,12 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                             }
                             android.util.Log.d("CallkitIncoming", "Set audio route to $audioRoute for call $uuid")
                             // Best-effort enforcement: prevent Bluetooth from immediately re-asserting
-                            applyAudioRouteOverride(route)
+                            val overrideApplied = applyAudioRouteOverride(route)
                             emitAudioLog(
                                 level = "info",
-                                message = "setAudioRoute completed uuid=$uuid route=${flutterRouteName(route)}($route)"
+                                message = "setAudioRoute completed uuid=$uuid route=${flutterRouteName(route)}($route) overrideApplied=$overrideApplied"
                             )
-                            result.success(true)
+                            result.success(overrideApplied)
                         } else {
                             android.util.Log.w("CallkitIncoming", "Connection not found for uuid: $uuid")
                             emitAudioLog(
@@ -613,8 +615,8 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
         } catch (_: Exception) {
         }
     }
-    private fun applyAudioRouteOverride(route: Int) {
-        val ctx = context ?: return
+    private fun applyAudioRouteOverride(route: Int): Boolean {
+        val ctx = context ?: return false
         val audioManager = ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         try {
             try {
@@ -649,11 +651,15 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                     else -> null
                 }
                 val targetDevice = describeCommunicationDevice(target)
-                if (target != null) {
-                    audioManager.setCommunicationDevice(target)
-                } else if (route != 2) {
-                    // Clear preferred device for non-BT routes if not found.
-                    audioManager.clearCommunicationDevice()
+                val applied = if (route == 2) {
+                    target != null && audioManager.setCommunicationDevice(target)
+                } else {
+                    if (target != null) {
+                        audioManager.setCommunicationDevice(target)
+                    } else {
+                        audioManager.clearCommunicationDevice()
+                    }
+                    true
                 }
                 @Suppress("DEPRECATION")
                 if (route == 1) {
@@ -664,16 +670,32 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                 val afterDevice = describeCommunicationDevice(audioManager.communicationDevice)
                 emitAudioLog(
                     level = "debug",
-                    message = "applyAudioRouteOverride route=${flutterRouteName(route)} before=$beforeDevice after=$afterDevice target=$targetDevice visible=$availableDevices",
+                    message = "applyAudioRouteOverride route=${flutterRouteName(route)} before=$beforeDevice after=$afterDevice target=$targetDevice visible=$availableDevices applied=$applied",
                     extras = mapOf("route" to route)
                 )
+                return applied
             } else {
-                if (route == 1) {
-                    audioManager.isSpeakerphoneOn = true
-                } else if (route == 0 || route == 3) {
-                    audioManager.isSpeakerphoneOn = false
-                }
-                if (route != 2) {
+                val applied = if (route == 2) {
+                    val canUseSco =
+                        audioManager.isBluetoothScoAvailableOffCall || isBluetoothHeadsetConnectedLegacy()
+                    if (canUseSco) {
+                        if (!audioManager.isBluetoothScoOn) {
+                            try {
+                                audioManager.startBluetoothSco()
+                            } catch (_: Exception) {
+                            }
+                        }
+                        audioManager.isBluetoothScoOn = true
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    if (route == 1) {
+                        audioManager.isSpeakerphoneOn = true
+                    } else if (route == 0 || route == 3) {
+                        audioManager.isSpeakerphoneOn = false
+                    }
                     if (audioManager.isBluetoothScoOn) {
                         try {
                             audioManager.stopBluetoothSco()
@@ -681,12 +703,14 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                         }
                         audioManager.isBluetoothScoOn = false
                     }
+                    true
                 }
                 emitAudioLog(
                     level = "debug",
-                    message = "applyAudioRouteOverride legacy route=${flutterRouteName(route)} speaker=${audioManager.isSpeakerphoneOn} sco=${audioManager.isBluetoothScoOn}",
+                    message = "applyAudioRouteOverride legacy route=${flutterRouteName(route)} speaker=${audioManager.isSpeakerphoneOn} sco=${audioManager.isBluetoothScoOn} applied=$applied",
                     extras = mapOf("route" to route)
                 )
+                return applied
             }
         } catch (error: Exception) {
             emitAudioLog(
@@ -694,6 +718,18 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
                 message = "applyAudioRouteOverride failed route=${flutterRouteName(route)} error=${error.message ?: "unknown"}",
                 extras = mapOf("route" to route)
             )
+            return false
+        }
+    }
+
+    private fun isBluetoothHeadsetConnectedLegacy(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) return false
+        return try {
+            val adapter = BluetoothAdapter.getDefaultAdapter() ?: return false
+            adapter.getProfileConnectionState(BluetoothProfile.HEADSET) ==
+                BluetoothProfile.STATE_CONNECTED
+        } catch (_: Exception) {
+            false
         }
     }
 
