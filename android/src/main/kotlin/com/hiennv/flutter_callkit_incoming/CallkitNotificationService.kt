@@ -78,7 +78,7 @@ class CallkitNotificationService : Service() {
                 ?.let {
                     if(it.getBoolean(CallkitConstants.EXTRA_CALLKIT_CALLING_SHOW, true)) {
                         getCallkitNotificationManager()?.createNotificationChanel(it)
-                        // Use media stream while ringing.
+                        // Keep ringtone behavior while the outbound call is still ringing.
                         showOngoingCallNotification(
                             it,
                             ringingAudio = true
@@ -163,7 +163,7 @@ class CallkitNotificationService : Service() {
         if (isRingbackPlaying) return
         isRingbackPlaying = true
         if (ringbackTone == null) {
-            ringbackTone = ToneGenerator(AudioManager.STREAM_MUSIC, 80)
+            ringbackTone = ToneGenerator(AudioManager.STREAM_RING, 80)
         }
         if (ringbackHandler == null) {
             ringbackHandler = Handler(Looper.getMainLooper())
