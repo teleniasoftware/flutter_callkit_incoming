@@ -708,6 +708,21 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
             appDelegate.didActivateAudioSession(audioSession)
         }
 
+        // Forza PlayAndRecord+voiceChat sull'audioSession già attivato da CallKit.
+        // Necessario quando la sessione era stata interrotta da un'altra app (es. YouTube/Spotify):
+        // in quel caso iOS lascia la categoria in Playback, impedendo la cattura del microfono
+        // e causando il fallimento del setup WebRTC. Non chiamiamo setActive() perché CallKit
+        // ha già attivato la sessione tramite il proprio meccanismo.
+        do {
+            try audioSession.setCategory(
+                .playAndRecord,
+                mode: .voiceChat,
+                options: [.allowBluetooth, .allowBluetoothA2DP]
+            )
+        } catch {
+            print("[CallkitPlugin] didActivate: failed to set audio session category: \(error)")
+        }
+
         if(self.answerCall?.hasConnected ?? false){
             sendDefaultAudioInterruptionNotificationToStartAudioResource()
             return
