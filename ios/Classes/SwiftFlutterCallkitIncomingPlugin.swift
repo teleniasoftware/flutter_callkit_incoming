@@ -510,6 +510,7 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
                     .allowBluetoothA2DP,
                     .duckOthers,
                     .allowBluetooth,
+                    .defaultToSpeaker
                 ])
                 
                 try session.setMode(self.getAudioSessionMode(data?.audioSessionMode))
@@ -625,7 +626,8 @@ public class SwiftFlutterCallkitIncomingPlugin: NSObject, FlutterPlugin, CXProvi
             } else {
                 sendEvent(SwiftFlutterCallkitIncomingPlugin.ACTION_CALL_ENDED, self.data?.toJSON())
             }
-            action.fail()
+            print("CallKit requested endCall for UUID: \(action.callUUID) but call was not found in CallManager. Forcing action.fulfill() to prevent UI stuck.")
+            action.fulfill()
             return
         }
         call.endCall()
