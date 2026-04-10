@@ -199,9 +199,10 @@ class FlutterCallkitIncomingPlugin : FlutterPlugin, MethodCallHandler, ActivityA
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         sharePluginWithRegister(flutterPluginBinding)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            InAppCallManager(flutterPluginBinding.applicationContext).registerPhoneAccount()
-        }
+        // TVox uses its own Android ConnectionService/runtime. Registering the
+        // legacy CallkitConnectionService here while the app cold-starts on
+        // accept adds a second self-managed PhoneAccount mid-call and can
+        // destabilize Telecom audio focus. Keep the plugin passive on Android.
     }
 
     public fun showIncomingNotification(data: Data) {
